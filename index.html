@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vessel Route Optimizer – ML Dashboard</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg:       #0b1120;
+    --panel:    #111827;
+    --card:     #1a2436;
+    --border:   #1e3a5f;
+    --accent:   #00d4ff;
+    --accent2:  #7c3aed;
+    --green:    #10b981;
+    --yellow:   #f59e0b;
+    --red:      #ef4444;
+    --text:     #e2e8f0;
+    --muted:    #64748b;
+    --glow:     0 0 20px rgba(0,212,255,.2);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; min-height: 100vh; }
+
+  /* ── Header ── */
+  header {
+    background: linear-gradient(90deg, #0b1120, #111827);
+    border-bottom: 1px solid var(--border);
+    padding: 14px 28px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .logo { display: flex; align-items: center; gap: 12px; }
+  .logo-icon { font-size: 28px; }
+  .logo-text h1 { font-size: 1.3rem; font-weight: 700; color: var(--accent); letter-spacing: .5px; }
+  .logo-text p  { font-size: .75rem; color: var(--muted); margin-top: 1px; }
+  .header-badges { display: flex; gap: 10px; }
+  .badge {
+    padding: 4px 12px; border-radius: 20px; font-size: .72rem; font-weight: 600;
+    display: flex; align-items: center; gap: 5px;
+  }
+  .badge-ml  { background: rgba(124,58,237,.2); border: 1px solid var(--accent2); color: #a78bfa; }
+  .badge-aco { background: rgba(0,212,255,.1);  border: 1px solid var(--accent);  color: var(--accent); }
+  .dot { width: 7px; height: 7px; border-radius: 50%; animation: pulse 1.5s infinite; }
+  .dot-green { background: var(--green); }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+  /* ── Layout ── */
+  .layout { display: grid; grid-template-columns: 360px 1fr; height: calc(100vh - 61px); }
+
+  /* ── Sidebar ── */
+  .sidebar {
+    background: var(--panel);
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+    padding: 20px;
+    display: flex; flex-direction: column; gap: 18px;
+  }
+  .sidebar::-webkit-scrollbar { width: 5px; }
+  .sidebar::-webkit-scrollbar-track { background: var(--bg); }
+  .sidebar::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  .section-title {
+    font-size: .7rem; font-weight: 700; letter-spacing: 1.2px;
+    color: var(--muted); text-transform: uppercase; margin-bottom: 10px;
+    display: flex; align-items: center; gap: 7px;
+  }
+  .section-title::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+
+  .form-group { margin-bottom: 14px; }
+  label { display: block; font-size: .78rem; color: var(--muted); margin-bottom: 5px; font-weight: 500; }
+  select, input[type=number], input[type=range] {
+    width: 100%; background: var(--card); border: 1px solid var(--border);
+    color: var(--text); padding: 9px 12px; border-radius: 8px;
+    font-size: .85rem; outline: none; transition: border .2s;
+  }
+  select:focus, input:focus { border-color: var(--accent); box-shadow: var(--glow); }
+  option { background: var(--card); }
+
+  .turbine-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .turbine-chip {
+    background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px 10px; cursor: pointer; transition: all .2s;
+    display: flex; align-items: center; gap: 7px; font-size: .8rem;
+  }
+  .turbine-chip:hover    { border-color: var(--accent); background: rgba(0,212,255,.06); }
+  .turbine-chip.selected { border-color: var(--accent); background: rgba(0,212,255,.12); color: var(--accent); }
+  .turbine-chip input    { width: 14px; height: 14px; accent-color: var(--accent); cursor: pointer; }
+
+  .slider-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+  .slider-val { font-size: .82rem; color: var(--accent); font-weight: 600; }
+  input[type=range] { padding: 4px 0; accent-color: var(--accent); }
+
+  .optimise-btn {
+    width: 100%; padding: 13px; border: none; border-radius: 10px;
+    background: linear-gradient(135deg, #0ea5e9, #7c3aed);
+    color: #fff; font-size: .95rem; font-weight: 700; cursor: pointer;
+    letter-spacing: .5px; transition: opacity .2s, transform .1s;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+  }
+  .optimise-btn:hover   { opacity: .9; }
+  .optimise-btn:active  { transform: scale(.98); }
+  .optimise-btn:disabled { opacity: .5; cursor: not-allowed; }
+
+  .ml-info-card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+    padding: 14px; font-size: .78rem; color: var(--muted); line-height: 1.7;
+  }
+  .ml-info-card .metric-row { display: flex; justify-content: space-between; margin-top: 6px; }
+  .ml-info-card .metric-val { color: var(--green); font-weight: 600; font-size: .82rem; }
+
+  /* ── Main Panel ── */
+  .main-panel { display: flex; flex-direction: column; overflow: hidden; }
+
+  .kpi-bar {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px;
+    background: var(--border); border-bottom: 1px solid var(--border);
+  }
+  .kpi {
+    background: var(--panel); padding: 14px 20px;
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .kpi-label { font-size: .7rem; color: var(--muted); text-transform: uppercase; letter-spacing: .8px; }
+  .kpi-value { font-size: 1.5rem; font-weight: 700; color: var(--accent); line-height: 1; }
+  .kpi-unit  { font-size: .72rem; color: var(--muted); }
+
+  .content-area { display: grid; grid-template-rows: 1fr auto; flex: 1; overflow: hidden; }
+  #map { width: 100%; height: 100%; min-height: 380px; }
+
+  .bottom-panel {
+    background: var(--panel); border-top: 1px solid var(--border);
+    display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1px;
+    background-color: var(--border);
+    max-height: 240px;
+  }
+  .bottom-card { background: var(--panel); padding: 16px; overflow: auto; }
+  .bottom-card h3 { font-size: .75rem; color: var(--muted); text-transform: uppercase; letter-spacing: .8px; margin-bottom: 10px; }
+
+  /* Route timeline */
+  .route-step {
+    display: flex; align-items: center; gap: 8px;
+    padding: 5px 0; border-bottom: 1px solid rgba(30,58,95,.4);
+    font-size: .78rem;
+  }
+  .step-num { width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: .65rem; font-weight: 700; flex-shrink: 0; }
+  .step-port    { background: var(--accent); color: #000; }
+  .step-turbine { background: var(--accent2); color: #fff; }
+  .step-info    { flex: 1; }
+  .step-name    { font-weight: 600; color: var(--text); }
+  .step-sub     { color: var(--muted); font-size: .7rem; }
+  .step-time    { color: var(--green); font-weight: 600; white-space: nowrap; }
+
+  /* Chart */
+  .chart-wrap { position: relative; height: 170px; }
+
+  /* Pred table */
+  table { width: 100%; border-collapse: collapse; font-size: .78rem; }
+  th { color: var(--muted); font-weight: 600; text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--border); font-size: .7rem; }
+  td { padding: 5px 6px; border-bottom: 1px solid rgba(30,58,95,.3); }
+  tr:last-child td { border: none; }
+  .td-good   { color: var(--green); }
+  .td-warn   { color: var(--yellow); }
+  .td-bad    { color: var(--red); }
+
+  /* Toast */
+  #toast {
+    position: fixed; bottom: 24px; right: 24px; z-index: 9999;
+    padding: 12px 20px; border-radius: 10px; font-size: .85rem; font-weight: 500;
+    display: none; animation: slideIn .3s ease;
+  }
+  .toast-error   { background: rgba(239,68,68,.9);  color: #fff; border: 1px solid var(--red); }
+  .toast-success { background: rgba(16,185,129,.9); color: #fff; border: 1px solid var(--green); }
+  @keyframes slideIn { from{transform:translateY(20px);opacity:0} to{transform:translateY(0);opacity:1} }
+
+  .loading-overlay {
+    display: none; position: absolute; inset: 0;
+    background: rgba(11,17,32,.7); z-index: 500;
+    align-items: center; justify-content: center; flex-direction: column; gap: 12px;
+  }
+  .loading-overlay.show { display: flex; }
+  .spinner {
+    width: 44px; height: 44px; border: 3px solid var(--border);
+    border-top-color: var(--accent); border-radius: 50%;
+    animation: spin .7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading-text { color: var(--accent); font-size: .85rem; letter-spacing: .5px; }
+
+  .empty-state {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    height: 100%; color: var(--muted); gap: 10px; font-size: .85rem;
+  }
+  .empty-icon { font-size: 2.5rem; opacity: .4; }
+
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; }
+    .kpi-bar { grid-template-columns: 1fr 1fr; }
+    .bottom-panel { grid-template-columns: 1fr; max-height: none; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<header>
+  <div class="logo">
+    <span class="logo-icon">⚓</span>
+    <div class="logo-text">
+      <h1>Vessel Route Optimizer</h1>
+      <p>ML-Powered · ACO Optimisation · Wind Farm Logistics</p>
+    </div>
+  </div>
+  <div class="header-badges">
+    <div class="badge badge-ml"><span>GBM Model</span></div>
+    <div class="badge badge-aco"><div class="dot dot-green"></div><span>ACO Ready</span></div>
+  </div>
+</header>
+
+<div class="layout">
+
+  <!-- ── SIDEBAR ── -->
+  <aside class="sidebar">
+
+    <div>
+      <div class="section-title">⚙️ Configuration Input</div>
+
+      <div class="form-group">
+        <label>🚢 Departure Port</label>
+        <select id="sel-port">
+          <option value="">Loading...</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label>🛥️ Vessel</label>
+        <select id="sel-vessel">
+          <option value="">Loading...</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label>🌤️ Weather Condition</label>
+        <select id="sel-weather">
+          <option value="">Loading...</option>
+        </select>
+      </div>
+    </div>
+
+    <div>
+      <div class="section-title">🌊 Sea Conditions</div>
+
+      <div class="form-group">
+        <div class="slider-row">
+          <label>Wave Height (m)</label>
+          <span class="slider-val" id="wave-val">1.0 m</span>
+        </div>
+        <input type="range" id="sl-wave" min="0.1" max="3.5" step="0.1" value="1.0"
+               oninput="document.getElementById('wave-val').textContent=parseFloat(this.value).toFixed(1)+' m'">
+      </div>
+
+      <div class="form-group">
+        <div class="slider-row">
+          <label>Wind Speed (knots)</label>
+          <span class="slider-val" id="wind-val">10 kts</span>
+        </div>
+        <input type="range" id="sl-wind" min="0" max="40" step="1" value="10"
+               oninput="document.getElementById('wind-val').textContent=this.value+' kts'">
+      </div>
+    </div>
+
+    <div>
+      <div class="section-title">🏭 Select Turbines</div>
+      <div class="turbine-grid" id="turbine-grid">
+        <div style="color:var(--muted);font-size:.8rem;">Loading turbines...</div>
+      </div>
+      <div style="margin-top:8px; display:flex; gap:8px;">
+        <button onclick="selectAllTurbines(true)"  style="flex:1;padding:5px;background:var(--card);border:1px solid var(--border);color:var(--text);border-radius:6px;cursor:pointer;font-size:.75rem;">Select All</button>
+        <button onclick="selectAllTurbines(false)" style="flex:1;padding:5px;background:var(--card);border:1px solid var(--border);color:var(--text);border-radius:6px;cursor:pointer;font-size:.75rem;">Clear</button>
+      </div>
+    </div>
+
+    <div>
+      <div class="section-title">📦 Manifest ID</div>
+      <div class="form-group">
+        <input type="text" id="inp-manifest" placeholder="e.g. BOWL02763" value="BOWL02763"
+               style="width:100%;background:var(--card);border:1px solid var(--border);color:var(--text);padding:9px 12px;border-radius:8px;font-size:.85rem;outline:none;">
+      </div>
+    </div>
+
+    <button class="optimise-btn" id="btn-optimise" onclick="runOptimisation()">
+      <span>🔍</span> <span>Run ML + ACO Optimisation</span>
+    </button>
+
+    <div class="ml-info-card">
+      <strong style="color:var(--text);font-size:.8rem;">🤖 Model Performance</strong>
+      <div class="metric-row"><span>Algorithm</span><span class="metric-val">Gradient Boosting</span></div>
+      <div class="metric-row"><span>MAE</span><span class="metric-val" id="meta-mae">—</span></div>
+      <div class="metric-row"><span>R²</span><span class="metric-val" id="meta-r2">—</span></div>
+      <div class="metric-row"><span>Training Rows</span><span class="metric-val">3,000</span></div>
+      <div class="metric-row"><span>Optimizer</span><span class="metric-val">ACO (50 ants, 150 iter)</span></div>
+    </div>
+
+  </aside>
+
+  <!-- ── MAIN PANEL ── -->
+  <main class="main-panel">
+
+    <!-- KPI Bar -->
+    <div class="kpi-bar">
+      <div class="kpi">
+        <span class="kpi-label">Best Route</span>
+        <span class="kpi-value" id="kpi-stops">—</span>
+        <span class="kpi-unit">stops</span>
+      </div>
+      <div class="kpi">
+        <span class="kpi-label">Total Travel Time</span>
+        <span class="kpi-value" id="kpi-time">—</span>
+        <span class="kpi-unit">hours</span>
+      </div>
+      <div class="kpi">
+        <span class="kpi-label">Total Distance</span>
+        <span class="kpi-value" id="kpi-dist">—</span>
+        <span class="kpi-unit">km</span>
+      </div>
+      <div class="kpi">
+        <span class="kpi-label">Est. Trip Cost</span>
+        <span class="kpi-value" id="kpi-cost">—</span>
+        <span class="kpi-unit">USD</span>
+      </div>
+    </div>
+
+    <!-- Map -->
+    <div class="content-area" style="position:relative; flex:1;">
+      <div id="map"></div>
+      <div class="loading-overlay" id="loading">
+        <div class="spinner"></div>
+        <div class="loading-text">Running ML + ACO optimisation…</div>
+      </div>
+    </div>
+
+    <!-- Bottom Panel -->
+    <div class="bottom-panel">
+
+      <!-- Route Steps -->
+      <div class="bottom-card">
+        <h3>📍 Optimised Route</h3>
+        <div id="route-steps">
+          <div class="empty-state" style="height:120px;">
+            <span class="empty-icon">🗺️</span>
+            <span>Run optimisation to see route</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Travel Time Predictions -->
+      <div class="bottom-card">
+        <h3>⏱ ML Travel Predictions</h3>
+        <div id="pred-table">
+          <div class="empty-state" style="height:120px;">
+            <span class="empty-icon">🤖</span>
+            <span>Predictions appear here</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ACO Convergence Chart -->
+      <div class="bottom-card">
+        <h3>📈 ACO Convergence</h3>
+        <div class="chart-wrap">
+          <canvas id="convergence-chart"></canvas>
+        </div>
+      </div>
+
+    </div>
+  </main>
+</div>
+
+<!-- Toast -->
+<div id="toast"></div>
+
+<script>
+// ── State ──────────────────────────────────────────────
+let META = {};
+let map, routeLayer, turbineMarkers = [], portMarker;
+let convergenceChart;
+
+// ── Init ───────────────────────────────────────────────
+document.addEventListener("DOMContentLoaded", () => {
+  initMap();
+  fetchMeta();
+  initChart();
+});
+
+function initMap() {
+  map = L.map("map", { zoomControl: true }).setView([58.2, -2.92], 10);
+  L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+    attribution: "© CartoDB",
+    maxZoom: 18,
+  }).addTo(map);
+}
+
+function initChart() {
+  const ctx = document.getElementById("convergence-chart").getContext("2d");
+  convergenceChart = new Chart(ctx, {
+    type: "line",
+    data: { labels: [], datasets: [{ label: "Best Cost", data: [], borderColor: "#00d4ff", backgroundColor: "rgba(0,212,255,.08)", borderWidth: 2, pointRadius: 0, tension: 0.4 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: "#64748b", maxTicksLimit: 6 }, grid: { color: "rgba(30,58,95,.4)" } },
+        y: { ticks: { color: "#64748b" }, grid: { color: "rgba(30,58,95,.4)" } }
+      }
+    }
+  });
+}
+
+async function fetchMeta() {
+  try {
+    const r = await fetch("/api/meta");
+    if (!r.ok) throw new Error("Model not trained");
+    META = await r.json();
+
+    // Ports
+    const pSel = document.getElementById("sel-port");
+    pSel.innerHTML = META.ports.map(p => `<option value="${p}">${p}</option>`).join("");
+
+    // Vessels
+    const vSel = document.getElementById("sel-vessel");
+    vSel.innerHTML = META.vessels.map(v => `<option value="${v}">${v}</option>`).join("");
+
+    // Weather
+    const wSel = document.getElementById("sel-weather");
+    const wIcons = {Clear:"☀️", Cloudy:"⛅", Fog:"🌫️", Overcast:"☁️", Rain:"🌧️", Storm:"⛈️"};
+    wSel.innerHTML = META.weathers.map(w => `<option value="${w}">${wIcons[w]||""} ${w}</option>`).join("");
+
+    // Turbines
+    const grid = document.getElementById("turbine-grid");
+    grid.innerHTML = META.turbines.map(t => `
+      <div class="turbine-chip" id="chip-${t}" onclick="toggleTurbine('${t}')">
+        <input type="checkbox" id="chk-${t}" value="${t}">
+        <div>
+          <div style="font-weight:600">${t}</div>
+          <div style="font-size:.68rem;color:var(--muted)">${META.turbine_coords[t].lat.toFixed(4)}, ${META.turbine_coords[t].lon.toFixed(4)}</div>
+        </div>
+      </div>
+    `).join("");
+
+    // Model metrics
+    if (META.metrics) {
+      document.getElementById("meta-mae").textContent = (META.metrics.mae||0).toFixed(3) + " hrs";
+      document.getElementById("meta-r2").textContent  = (META.metrics.r2||0).toFixed(4);
+    }
+
+    // Plot turbine markers
+    plotTurbineMarkers();
+    plotPortMarker(META.ports[0]);
+
+  } catch(e) {
+    showToast("⚠ " + e.message + " – run train_model.py first", "error");
+  }
+}
+
+// ── Map helpers ────────────────────────────────────────
+function turbineIcon(selected) {
+  return L.divIcon({
+    html: `<div style="background:${selected?'#7c3aed':'#1e3a5f'};border:2px solid ${selected?'#a78bfa':'#00d4ff'};width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;box-shadow:0 0 8px rgba(0,212,255,.4)">⚡</div>`,
+    className: "", iconAnchor: [14, 14]
+  });
+}
+function portIcon() {
+  return L.divIcon({
+    html: `<div style="background:#0ea5e9;border:2px solid #fff;width:34px;height:34px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:18px;box-shadow:0 0 12px rgba(14,165,233,.5)">⚓</div>`,
+    className: "", iconAnchor: [17, 17]
+  });
+}
+function vesselIcon() {
+  return L.divIcon({
+    html: `<div style="background:#f59e0b;border:2px solid #fff;width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:16px;box-shadow:0 0 10px rgba(245,158,11,.5)">🚢</div>`,
+    className: "", iconAnchor: [15, 15]
+  });
+}
+
+function plotTurbineMarkers() {
+  turbineMarkers.forEach(m => map.removeLayer(m));
+  turbineMarkers = [];
+  if (!META.turbine_coords) return;
+  Object.entries(META.turbine_coords).forEach(([id, c]) => {
+    const m = L.marker([c.lat, c.lon], {icon: turbineIcon(false)})
+      .addTo(map)
+      .bindPopup(`<b>🌀 Turbine ${id}</b><br>Lat: ${c.lat.toFixed(5)}<br>Lon: ${c.lon.toFixed(5)}`);
+    m._turbineId = id;
+    turbineMarkers.push(m);
+  });
+}
+
+function plotPortMarker(portName) {
+  if (portMarker) map.removeLayer(portMarker);
+  const c = META.port_coords?.[portName];
+  if (!c) return;
+  portMarker = L.marker([c.lat, c.lon], {icon: portIcon()})
+    .addTo(map)
+    .bindPopup(`<b>⚓ ${portName}</b>`);
+}
+
+// ── Turbine selection ──────────────────────────────────
+function toggleTurbine(id) {
+  const chk  = document.getElementById("chk-"+id);
+  const chip = document.getElementById("chip-"+id);
+  chk.checked = !chk.checked;
+  chip.classList.toggle("selected", chk.checked);
+}
+function selectAllTurbines(state) {
+  META.turbines?.forEach(t => {
+    document.getElementById("chk-"+t).checked = state;
+    document.getElementById("chip-"+t).classList.toggle("selected", state);
+  });
+}
+
+// ── Watch port change ──────────────────────────────────
+document.addEventListener("change", e => {
+  if (e.target.id === "sel-port") plotPortMarker(e.target.value);
+});
+
+// ── Main optimisation ──────────────────────────────────
+async function runOptimisation() {
+  const port    = document.getElementById("sel-port").value;
+  const vessel  = document.getElementById("sel-vessel").value;
+  const weather = document.getElementById("sel-weather").value;
+  const wave    = parseFloat(document.getElementById("sl-wave").value);
+  const wind    = parseFloat(document.getElementById("sl-wind").value);
+  const turbines = [...document.querySelectorAll("#turbine-grid input:checked")].map(c => c.value);
+
+  if (!port || !vessel || turbines.length === 0) {
+    showToast("Please select port, vessel, and at least one turbine", "error"); return;
+  }
+
+  document.getElementById("loading").classList.add("show");
+  document.getElementById("btn-optimise").disabled = true;
+
+  try {
+    const res = await fetch("/api/optimise", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({port, vessel, weather, wave_height: wave, wind_speed: wind, turbines})
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Optimisation failed");
+
+    renderResults(data);
+    showToast("✓ Optimisation complete – best route found!", "success");
+  } catch(e) {
+    showToast("Error: " + e.message, "error");
+  } finally {
+    document.getElementById("loading").classList.remove("show");
+    document.getElementById("btn-optimise").disabled = false;
+  }
+}
+
+// ── Render results ─────────────────────────────────────
+function renderResults(data) {
+  // KPIs
+  document.getElementById("kpi-stops").textContent = data.route_details.length;
+  document.getElementById("kpi-time").textContent  = data.total_time_hrs.toFixed(2);
+  document.getElementById("kpi-dist").textContent  = data.total_dist_km.toFixed(1);
+  document.getElementById("kpi-cost").textContent  = "$" + data.total_cost_usd.toLocaleString();
+
+  // Draw route on map
+  drawRoute(data);
+
+  // Route steps
+  const steps = document.getElementById("route-steps");
+  steps.innerHTML = data.route_details.map((step, i) => {
+    const isPort = step.id.startsWith("PORT:");
+    return `
+      <div class="route-step">
+        <div class="step-num ${isPort?'step-port':'step-turbine'}">${i+1}</div>
+        <div class="step-info">
+          <div class="step-name">${isPort ? "⚓ "+step.name : "⚡ "+step.name}</div>
+          <div class="step-sub">${step.segment_dist_km} km · ${step.lat.toFixed(4)}, ${step.lon.toFixed(4)}</div>
+        </div>
+        <div class="step-time">${isPort ? "START" : step.pred_time_hrs+"h"}</div>
+      </div>
+    `;
+  }).join("");
+
+  // Prediction table
+  const tbody = document.getElementById("pred-table");
+  const rows = Object.entries(data.predictions).map(([tid, t]) => {
+    const cls = t < 2 ? "td-good" : t < 4 ? "td-warn" : "td-bad";
+    return `<tr>
+      <td style="font-weight:600">⚡ ${tid}</td>
+      <td class="${cls}">${t} hrs</td>
+      <td style="color:var(--muted)">${data.weather}</td>
+    </tr>`;
+  }).join("");
+  tbody.innerHTML = `<table>
+    <thead><tr><th>Turbine</th><th>Pred. Time</th><th>Weather</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+
+  // Convergence chart
+  const conv = data.convergence;
+  convergenceChart.data.labels = conv.map((_,i) => i+1);
+  convergenceChart.data.datasets[0].data = conv;
+  convergenceChart.update();
+}
+
+function drawRoute(data) {
+  if (routeLayer) map.removeLayer(routeLayer);
+
+  const latlngs = data.route_details.map(s => [s.lat, s.lon]);
+
+  // Animated dashed line
+  routeLayer = L.layerGroup();
+
+  // Main route polyline
+  L.polyline(latlngs, {
+    color: "#00d4ff", weight: 3, opacity: .85,
+    dashArray: "8 5"
+  }).addTo(routeLayer);
+
+  // Direction arrows
+  for (let i = 0; i < latlngs.length - 1; i++) {
+    const mid = [(latlngs[i][0]+latlngs[i+1][0])/2, (latlngs[i][1]+latlngs[i+1][1])/2];
+    L.circleMarker(mid, {radius:3, color:"#00d4ff", fillColor:"#00d4ff", fillOpacity:1, weight:0}).addTo(routeLayer);
+  }
+
+  // Vessel marker animated along route
+  const vesselM = L.marker(latlngs[0], {icon: vesselIcon()})
+    .bindPopup(`<b>🚢 ${data.vessel}</b><br>Currently at: Start`).addTo(routeLayer);
+
+  routeLayer.addTo(map);
+  map.fitBounds(L.latLngBounds(latlngs).pad(.15));
+
+  // Update turbine marker colors
+  turbineMarkers.forEach(m => {
+    const inRoute = data.route.includes(m._turbineId);
+    m.setIcon(turbineIcon(inRoute));
+  });
+}
+
+// ── Toast ─────────────────────────────────────────────
+function showToast(msg, type="success") {
+  const t = document.getElementById("toast");
+  t.textContent = msg;
+  t.className = `toast-${type}`;
+  t.style.display = "block";
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => t.style.display = "none", 4000);
+}
+</script>
+</body>
+</html>
